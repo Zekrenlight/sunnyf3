@@ -9,6 +9,9 @@ combination, Sunrise's charts (F3+1 to F3+4) and the F3+F6 entry screen keep wor
 It shows only while you play with nothing open: the pause menu, inventories, chat and every
 other screen hide it. With Frontier installed, its minimap steps aside while F3 is showing.
 
+<img width="2556" height="401" alt="image" src="https://github.com/user-attachments/assets/3619a728-22c2-431c-88ec-fe0df131df5c" />
+
+
 ## Sections
 - **Performance**: frame rate (green, yellow or red against your monitor), frame time and the
   1% low, the frame limit, VSync and refresh rate, frame generation, the server's time a tick
