@@ -1,0 +1,110 @@
+id = "sunnyf3"
+name = "SunnyF3"
+version = "1.0.0"
+description = "A cleaner F3 screen for Sunrise. The debug text comes in sections, Performance, Position, World, Looking At, System and Sunrise, each with a title, in the left or right column at any place or hidden. Values are coloured by meaning (frame rate, server time, light, memory, the X, Y and Z axes, true and false), with a 1% low, the in-game clock and readable names for biomes, blocks and creatures. Panels, strips or bare text, with opacity, shadow and an accent colour. Sunrise's charts and every F3 key work as before, and Sunrise's own debug entries (F3+F6) can be shown as a section too."
+authors = ["Zekrenlight"]
+license = "MIT"
+api = "0.2"
+side = "client"
+capabilities = ["registries"]
+
+# Sunrise Mod SDK 9425651 (94256510f74, 19 Nov 2026, API 0.2, game 26.3). Mixins tool rev e59da909.
+# The overlay reads the game's own state (frame rate, server, player, world, renderer) and
+# stands in for its F3 text, so the mod is pinned to this commit.
+[native]
+game = "26.3"
+sunrise = "94256510f74e6843754e0a93fd9e4da7e45b1056"
+mixins = "e59da9094f0c2fdda6c627fe9eff22dec6a906f0"
+
+# The overlay and the settings key (`crate::game::sunnyf3_hud`).
+[[native.module]]
+id = "hud"
+file = "crates/sunrise-client/src/game.rs"
+name = "sunnyf3_hud"
+source = "src/native/hud.rs"
+
+# The F3 overlay, over everything the frame drew: SunnyF3's sections while F3 is open.
+# (The F3+F6 screen draws the game's own text under itself, unchanged.)
+[[native.mixin]]
+id = "overlay"
+target = "sunrise_client::game::debug_keys::Game<'_>::draw_debug_overlay"
+kind = "HEAD"
+cancellable = true
+helper = "src/mixins/overlay.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "batch", ty = "&mut sunrise_client::hud::HudBatch", value = "&mut *batch" },
+  { name = "size", ty = "[u32; 2]", value = "size" },
+]
+
+# Once a frame, before it is drawn: the settings key's request.
+[[native.mixin]]
+id = "frame"
+target = "sunrise_client::game::native_hooks::render_frame_pre::Game<'_>::native_render_frame_pre"
+kind = "HEAD"
+helper = "src/mixins/frame.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+# The settings card (shared Sunrise dark card). Sunrise opens a mod's settings as its
+# Options page `NativeMod(index)` (SunnyMods' Settings button, Sunrise's Mods list and the
+# mod's own settings key all land there). These HEAD hooks act only on this mod's own page
+# and let every other page, and every other mod's card, through untouched.
+[[native.module]]
+id = "card"
+file = "crates/sunrise-client/src/game.rs"
+name = "sunnyf3_card"
+source = "src/native/card.rs"
+
+[[native.mixin]]
+id = "card_draw"
+target = "sunrise_client::game::options::Game<'_>::draw_options"
+kind = "HEAD"
+cancellable = true
+helper = "src/mixins/card_draw.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "batch", ty = "&mut sunrise_client::hud::HudBatch", value = "&mut *batch" },
+]
+
+[[native.mixin]]
+id = "card_mouse"
+target = "sunrise_client::game::options::Game<'_>::options_mouse"
+kind = "HEAD"
+cancellable = true
+helper = "src/mixins/card_mouse.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "pressed", ty = "bool", value = "pressed" },
+  { name = "right", ty = "bool", value = "right" },
+]
+
+[[native.mixin]]
+id = "card_drag"
+target = "sunrise_client::game::options::Game<'_>::options_drag"
+kind = "HEAD"
+cancellable = true
+helper = "src/mixins/card_drag.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+[[native.mixin]]
+id = "card_scroll"
+target = "sunrise_client::game::options::Game<'_>::options_scroll"
+kind = "HEAD"
+cancellable = true
+helper = "src/mixins/card_scroll.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "amount", ty = "f32", value = "amount" },
+]
+
+[[native.mixin]]
+id = "card_key"
+target = "sunrise_client::game::options::Game<'_>::options_key"
+kind = "HEAD"
+cancellable = true
+helper = "src/mixins/card_key.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "key", ty = "KeyCode", value = "key" },
+  { name = "text", ty = "Option<&str>", value = "text" },
+]
