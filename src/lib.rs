@@ -111,7 +111,7 @@ impl Hooks for SunnyF3 {
         if !config_loaded() {
             sync(host);
         }
-        if host.consume_click(ID, "settings") {
+        if host.mod_key_mapping(ID, "settings").and_then(|m| m.consume_click(host)).unwrap_or(false) {
             OPEN_SETTINGS.store(true, Ordering::Relaxed);
         }
     }

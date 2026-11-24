@@ -568,7 +568,7 @@ fn paint(game: &Game<'_>, s: &mut State, cfg: &Config, batch: &mut HudBatch, siz
         width,
         height,
         game.settings.max_fps,
-        1000.0 / game.clock.rate(),
+        &game.clock,
         !game.has_singleplayer_server(),
     );
     draws.push(GuiDraw::Push(vec![PoseOp::Scale(scale, scale)]));
