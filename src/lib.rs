@@ -15,10 +15,11 @@ pub mod format;
 pub use config::*;
 
 use mod_api::{
-    ClientHost, ClientTickPostEvent, Hooks, KeyRegistration, Registrar, RegistrationContext,
-    SettingChangedEvent, SettingSpec,
+    ClientHost, ClientTickPostEvent, Host, Hooks, KeyRegistration, Registrar, RegistrationContext,
+    SettingChangedEvent, SettingKey, SettingSpec,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 
 static OPEN_SETTINGS: AtomicBool = AtomicBool::new(false);
 
@@ -33,45 +34,69 @@ struct SunnyF3;
 fn label(key: &str) -> String {
     format!("sunnyf3.setting.{key}")
 }
-fn toggle(r: &mut dyn Registrar, key: &str, default: bool) {
+fn toggle(r: &mut dyn Registrar, key: &str, default: bool) -> Option<SettingKey> {
     let l = label(key);
-    let _ = r.register_setting(SettingSpec::toggle(key, l.clone(), default).tooltip(format!("{l}.tooltip")));
+    r.register_setting(SettingSpec::toggle(key, l.clone(), default).tooltip(format!("{l}.tooltip"))).ok()
 }
-fn range(r: &mut dyn Registrar, key: &str, min: f64, max: f64, step: f64, default: f64) {
+fn range(r: &mut dyn Registrar, key: &str, min: f64, max: f64, step: f64, default: f64) -> Option<SettingKey> {
     let l = label(key);
-    let _ = r.register_setting(SettingSpec::range(key, l.clone(), min, max, step, default).tooltip(format!("{l}.tooltip")));
+    r.register_setting(SettingSpec::range(key, l.clone(), min, max, step, default).tooltip(format!("{l}.tooltip"))).ok()
 }
-fn choice(r: &mut dyn Registrar, key: &str, options: &[&str], default: usize) {
+fn choice(r: &mut dyn Registrar, key: &str, options: &[&str], default: usize) -> Option<SettingKey> {
     let l = label(key);
-    let _ = r.register_setting(
+    r.register_setting(
         SettingSpec::choice(key, l.clone(), options.iter().copied(), default).tooltip(format!("{l}.tooltip")),
-    );
+    ).ok()
 }
-fn color(r: &mut dyn Registrar, key: &str, default: u32) {
+fn color(r: &mut dyn Registrar, key: &str, default: u32) -> Option<SettingKey> {
     let l = label(key);
-    let _ = r.register_setting(SettingSpec::color(key, l.clone(), default).tooltip(format!("{l}.tooltip")));
+    r.register_setting(SettingSpec::color(key, l.clone(), default).tooltip(format!("{l}.tooltip"))).ok()
+}
+
+struct SettingKeys {
+    enabled: Option<SettingKey>,
+    style: Option<SettingKey>,
+    opacity: Option<SettingKey>,
+    headers: Option<SettingKey>,
+    shadow: Option<SettingKey>,
+    colours: Option<SettingKey>,
+    accent: Option<SettingKey>,
+    refresh: Option<SettingKey>,
+    places: [Option<SettingKey>; 7],
+    orders: [Option<SettingKey>; 7],
+}
+
+static SETTING_KEYS: OnceLock<SettingKeys> = OnceLock::new();
+
+fn bool_of(host: &dyn Host, key: Option<SettingKey>, default: bool) -> bool {
+    key.and_then(|k| host.setting_bool(k).ok()).unwrap_or(default)
+}
+fn f64_of(host: &dyn Host, key: Option<SettingKey>, default: f64) -> f64 {
+    key.and_then(|k| host.setting_f64(k).ok()).filter(|v| v.is_finite()).unwrap_or(default)
+}
+fn choice_of(host: &dyn Host, key: Option<SettingKey>, default: u32) -> u32 {
+    key.and_then(|k| host.setting_choice(k).ok()).unwrap_or(default)
 }
 
 /// Reads every setting into the copy the game half uses.
-fn sync(host: &dyn ClientHost) {
+fn sync(host: &dyn Host) {
     let d = Config::default();
-    let b = |key: &str, default: bool| host.setting_bool(key).unwrap_or(default);
-    let n = |key: &str, default: f64| host.setting_f64(key).filter(|v| v.is_finite()).unwrap_or(default);
-    let c = |key: &str| host.setting_choice(key);
+    let Some(k) = SETTING_KEYS.get() else { return };
     set_config(Config {
-        enabled: b(KEY_ENABLED, d.enabled),
-        style: Style::from_index(c(KEY_STYLE).unwrap_or(0)),
-        opacity: n(KEY_OPACITY, f64::from(d.opacity)).clamp(0.0, 100.0) as u32,
-        headers: b(KEY_HEADERS, d.headers),
-        shadow: b(KEY_SHADOW, d.shadow),
-        colours: b(KEY_COLOURS, d.colours),
-        accent: host.setting_color(KEY_ACCENT).unwrap_or(d.accent) & 0xFF_FFFF,
-        refresh: n(KEY_REFRESH, f64::from(d.refresh)).clamp(50.0, 1000.0) as u32,
+        enabled: bool_of(host, k.enabled, d.enabled),
+        style: Style::from_index(choice_of(host, k.style, 0)),
+        opacity: f64_of(host, k.opacity, f64::from(d.opacity)).clamp(0.0, 100.0) as u32,
+        headers: bool_of(host, k.headers, d.headers),
+        shadow: bool_of(host, k.shadow, d.shadow),
+        colours: bool_of(host, k.colours, d.colours),
+        accent: k.accent.and_then(|a| host.setting_color(a).ok()).unwrap_or(d.accent) & 0xFF_FFFF,
+        refresh: f64_of(host, k.refresh, f64::from(d.refresh)).clamp(50.0, 1000.0) as u32,
         layout: Section::ALL
             .iter()
-            .map(|&s| {
-                let place = c(&s.place_key()).map_or(s.default_place(), Place::from_index);
-                let order = n(&s.order_key(), f64::from(s.default_order())).clamp(1.0, 9.0) as u32;
+            .enumerate()
+            .map(|(i, &s)| {
+                let place = Place::from_index(choice_of(host, k.places[i], s.default_place().index() as u32));
+                let order = f64_of(host, k.orders[i], f64::from(s.default_order())).clamp(1.0, 9.0) as u32;
                 (s, place, order)
             })
             .collect(),
@@ -87,21 +112,28 @@ impl Hooks for SunnyF3 {
                 .category("sunnyf3"),
         );
         let d = Config::default();
-        toggle(r, KEY_ENABLED, d.enabled);
-        choice(r, KEY_STYLE, &Style::OPTIONS, 0);
-        range(r, KEY_OPACITY, 0.0, 100.0, 5.0, f64::from(d.opacity));
-        toggle(r, KEY_HEADERS, d.headers);
-        toggle(r, KEY_SHADOW, d.shadow);
-        toggle(r, KEY_COLOURS, d.colours);
-        color(r, KEY_ACCENT, d.accent);
-        range(r, KEY_REFRESH, 50.0, 1000.0, 50.0, f64::from(d.refresh));
-        for s in Section::ALL {
-            choice(r, &s.place_key(), &Place::OPTIONS, s.default_place().index());
-            range(r, &s.order_key(), 1.0, 9.0, 1.0, f64::from(s.default_order()));
+        let mut places = [None; 7];
+        let mut orders = [None; 7];
+        for (i, s) in Section::ALL.iter().enumerate() {
+            places[i] = choice(r, &s.place_key(), &Place::OPTIONS, s.default_place().index());
+            orders[i] = range(r, &s.order_key(), 1.0, 9.0, 1.0, f64::from(s.default_order()));
         }
+        let keys = SettingKeys {
+            enabled: toggle(r, KEY_ENABLED, d.enabled),
+            style: choice(r, KEY_STYLE, &Style::OPTIONS, 0),
+            opacity: range(r, KEY_OPACITY, 0.0, 100.0, 5.0, f64::from(d.opacity)),
+            headers: toggle(r, KEY_HEADERS, d.headers),
+            shadow: toggle(r, KEY_SHADOW, d.shadow),
+            colours: toggle(r, KEY_COLOURS, d.colours),
+            accent: color(r, KEY_ACCENT, d.accent),
+            refresh: range(r, KEY_REFRESH, 50.0, 1000.0, 50.0, f64::from(d.refresh)),
+            places,
+            orders,
+        };
+        let _ = SETTING_KEYS.set(keys);
     }
 
-    fn setting_changed(&self, host: &mut dyn ClientHost, event: &mut SettingChangedEvent<'_>) {
+    fn setting_changed(&self, host: &dyn Host, event: &mut SettingChangedEvent<'_>) {
         if event.mod_id == ID {
             sync(host);
         }
